@@ -1,0 +1,68 @@
+# This docker-compose file sets up a development environment with SQL Server, Zookeeper, Kafka, and Debezium Connect.
+
+services:
+  # Use the latest SQL Server 2022 image from Microsoft
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Wenami@12345"
+      MSSQL_AGENT_ENABLED: "true"
+      MSSQL_PID: Developer
+    ports:
+    - "1433:1433" # Enable SQL Server Agent for scheduled tasks and jobs
+      
+    restart: unless-stopped
+
+
+# Server Name: localhost,1433
+# User Name: sa
+# Password: Wenami@12345
+# Database Name: master
+  # Zookeeper is required for Kafka to manage its cluster state and coordinate the brokers.
+  zookeeper:
+    image: zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    restart: unless-stopped
+
+  # Kafka is the messaging system that will be used to stream data from SQL Server to other systems.
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    restart: unless-stopped
+
+  # Debezium Connect is a tool that captures data changes (CDC) from SQL Server and streams them to Kafka.
+  debezium:
+    image: quay.io/debezium/connect:latest
+    container_name: debezium
+    ports:
+      - "8083:8083"
+    depends_on:
+      - kafka
+      - sqlserver
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONNECT_REST_ADVERTISED_HOST_NAME: debezium
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+    restart: unless-stopped
